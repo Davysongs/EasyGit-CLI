@@ -1,170 +1,91 @@
-#!/usr/bin/env node
+// index.test.js
+import { jest } from '@jest/globals';
+import simpleGit from 'simple-git';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import inquirer from 'inquirer';
+import dotenv from 'dotenv';
+import { execSync } from 'child_process';
+import { program } from 'commander';
 
-import { program } from "commander";
-import inquirer from "inquirer";
-import simpleGit from "simple-git";
-import { GoogleGenerativeAI } from "@google/generative-ai";
-import dotenv from "dotenv";
 dotenv.config();
 
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+// Mock external dependencies
+jest.mock('simple-git');
+jest.mock('@google/generative-ai');
+jest.mock('inquirer');
+jest.mock('dotenv');
 
-// Initialize simple-git
-const git = simpleGit();
+describe('Git CLI', () => {
+  let git;
+  let genAI;
+  let model;
 
-// Command to add files to staging area
-program
-  .command("first-push [repo]")
-  .description(
-    "Initialize git, add to staging area, commit and push to remote repo "
-  )
-  .action(async (repo) => {
-    if (!repo) {
-      repo = await inquirer
-        .prompt([
-          {
-            type: "input",
-            name: "repo",
-            message: "Enter the repository you wish to push to",
-            validate: (input) => {
-              if (input.trim() === "") {
-                return "Repository URL cannot be empty";
-              }
-              return true;
-            },
-          },
-        ])
-        .then(({ repo }) => repo);
-    }
+  beforeEach(() => {
+    git = {
+      init: jest.fn().mockResolvedValue(true),
+      add: jest.fn().mockResolvedValue(true),
+      commit: jest.fn().mockResolvedValue(true),
+      branch: jest.fn().mockResolvedValue(true),
+      addRemote: jest.fn().mockResolvedValue(true),
+      push: jest.fn().mockResolvedValue(true),
+      status: jest.fn().mockResolvedValue({ not_added: [] }),
+      diff: jest.fn().mockResolvedValue(''),
+      reset: jest.fn().mockResolvedValue(true)
+    };
+    simpleGit.mockReturnValue(git);
 
-    try {
-      await git.init();
-      console.log("Initialized empty Git repository.");
-    } catch (err) {
-      console.error("Error initializing Git repository:", err);
-      return;
-    }
+    genAI = {
+      generateContent: jest.fn()
+    };
+    model = { generateContent: genAI.generateContent };
+    GoogleGenerativeAI.mockImplementation(() => ({
+      getGenerativeModel: jest.fn(() => model)
+    }));
 
-    try {
-      await git.add(".");
-      console.log("File(s) added to staging area.");
-    } catch (err) {
-      console.error("Error adding files:", err);
-      return;
-    }
-
-    try {
-      await git.commit(["initial Commit"]);
-      console.log("Successfully commited");
-    } catch (err) {
-      console.error("Error commiting:", err);
-      return;
-    }
-
-    try {
-      await git.branch(["-M", "main"]);
-      console.log("Successfully changed branch to main.");
-    } catch (err) {
-      console.error("Error changing branch to main:", err);
-      return;
-    }
-
-    const remoteName = "origin";
-    const remoteUrl = repo;
-    console.log(remoteUrl);
-
-    try {
-      await git.addRemote(remoteName, remoteUrl);
-      console.log(
-        `Added remote origin "${remoteName}" with URL "${remoteUrl}"`
-      );
-    } catch (err) {
-      console.error(`Error adding remote origin:`, err);
-      return;
-    }
-
-    try {
-      await git.push("origin", "main", ["-u"]);
-      console.log("Changes pushed successfully to remote repository.");
-    } catch (err) {
-      console.error("Error pushing changes to remote repository:", err);
-      return;
-    }
+    inquirer.prompt.mockResolvedValue({ repo: 'https://github.com/user/repo.git' });
+    dotenv.config.mockReturnValue({});
   });
 
-program
-  .command("push")
-  .description("For adding, commiting and pushing changes")
-  .action(async () => {
-      try {
-          await git.reset(['--']);
-          console.log('All changes unstaged successfully');
-        } catch (err) {
-            console.error('Error unstaging changes:', err);
-            return;
-        }
-        
-      try {
-        const diff = await git.diff();
-      const status = await git.status();
-      const newFiles = status.not_added;
-      let prompt;
-      if (diff || newFiles.length) {
-        prompt = diff
-          ? newFiles.length
-            ? `generate a commit message for this diff:${diff} and these new files:${newFiles}. Your response should be an object with the keys of subject and body only` //prompt for diff and newFiles
-            : `generate a commit message for this diff:${diff}. Your response should be an object with the keys of subject and body only` //prompt for diff alone
-            : `generate a commit message for these new files:${newFiles}your response should be an object with the keys of subject and body only`; //prompt for newFiles alone
-        const commitMessage = await model
-        .generateContent(prompt)
-        .then((result) => {
-            console.log(result.response.text());
-            const response = JSON.parse(result.response.text().replace('```', '').replace('json', '').replace('```', '')); // Assuming JSON format
-            const subject = response.subject;
-            const body = response.body;
-            const msg = {
-                subject: subject,
-                body: body,
-            };
-        return msg
-        })
-        .catch((err) => {
-          console.error("Error generating commit message:", err);
-          return;
-        //   console.error("Prompt used:", prompt);
-        });
-        try {
-            await git.add(".");
-            console.log("File(s) added to staging area.");
-          } catch (err) {
-            console.error("Error adding files:", err);
-            return;
-          }
-          try {
-            await git.commit([`${commitMessage.subject}`, `${commitMessage.body}`]);
-            console.log("Successfully commited");
-          } catch (err) {
-            console.error("Error commiting:", err);
-            return;
-          }
-          try {
-            await git.push();
-            console.log("Changes pushed successfully to remote repository.");
-          } catch (err) {
-            console.error("Error pushing changes to remote repository:", err);
-            return;
-          }
-      } 
-      else {
-        return console.log("there are no changes to be commited");
-      }
-
-        
-      } catch (error) {
-        
-      }
-    
+  afterEach(() => {
+    jest.clearAllMocks();
   });
-// Parse command line arguments
-program.parse(process.argv);
+
+  test('first-push command initializes, adds, commits, and pushes to remote repo', async () => {
+    const { firstPush } = require('./index');
+
+    // Simulate running the first-push command
+    await execSync('node index.js first-push https://github.com/user/repo.git');
+
+    expect(git.init).toHaveBeenCalled();
+    expect(git.add).toHaveBeenCalledWith('.');
+    expect(git.commit).toHaveBeenCalledWith(['initial Commit']);
+    expect(git.branch).toHaveBeenCalledWith(['-M', 'main']);
+    expect(git.addRemote).toHaveBeenCalledWith('origin', 'https://github.com/user/repo.git');
+    expect(git.push).toHaveBeenCalledWith('origin', 'main', ['-u']);
+  });
+
+  test('push command generates commit message, adds, commits, and pushes changes', async () => {
+    const commitMessage = {
+      subject: 'Test commit',
+      body: 'This is a test commit message.'
+    };
+
+    genAI.generateContent.mockResolvedValue({
+      response: {
+        text: () => JSON.stringify(commitMessage)
+      }
+    });
+
+    const { pushChanges } = require('./index');
+
+    // Simulate running the push command
+    await execSync('node index.js push');
+
+    expect(git.diff).toHaveBeenCalled();
+    expect(git.status).toHaveBeenCalled();
+    expect(genAI.generateContent).toHaveBeenCalled();
+    expect(git.add).toHaveBeenCalledWith('.');
+    expect(git.commit).toHaveBeenCalledWith([commitMessage.subject, commitMessage.body]);
+    expect(git.push).toHaveBeenCalled();
+  });
+});

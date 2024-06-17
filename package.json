@@ -36,5 +36,8 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/o-david/EasyGit-CLI.git"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
   }
 }
